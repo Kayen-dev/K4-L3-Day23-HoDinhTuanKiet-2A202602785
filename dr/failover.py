@@ -35,13 +35,61 @@ LOG = pathlib.Path("reports/failover-events.jsonl")
 
 
 def emit(**kw):
-    """TODO: append 1 dòng JSONL có ts + iso vào LOG, và print ra stdout."""
-    raise NotImplementedError
+    rec = {"ts": time.time(), "iso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), **kw}
+    LOG.parent.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a", encoding="utf-8") as log:
+        log.write(json.dumps(rec) + "\n")
+    print(json.dumps(rec))
+    return rec
+
+
+def state_of(region: str) -> dict:
+    return httpx.get(f"{URL[region]}/v1/state", timeout=2).json()
 
 
 def failover(target: str, backend: str, wait: float) -> dict:
-    """TODO: 5 bước ở trên, đúng thứ tự."""
-    raise NotImplementedError
+    if target not in URL or wait < 0:
+        raise ValueError("invalid target or wait")
+    active = pathlib.Path("edge/active_region")
+    if active.exists() and active.read_text().strip() == target:
+        return {"ok": False, "error": "target already active"}
+    try:
+        before = state_of(target)
+        emit(step="1_verify_target", target=target, state=before)
+        meta = snapshot.get(target, backend)
+        rpo = snapshot.rpo(pathlib.Path(f"state/region-{'b' if target == 'a' else 'a'}/vectors.sqlite"),
+                           pathlib.Path(f"state/region-{target}/vectors.sqlite"))
+        emit(step="2_restore_snapshot", target=target, **meta,
+             rpo_seconds=rpo["rpo_seconds"], docs_lost=rpo["docs_lost"])
+        pool = pathlib.Path(f"state/region-{target}/pool_state")
+        pool.write_text("full")
+        emit(step="3_scale_pool", target=target, pool_state="full")
+        deadline = time.monotonic() + wait
+        began = time.monotonic()
+        reason = "not ready"
+        while True:
+            try:
+                response = httpx.get(f"{URL[target]}/readyz", timeout=2)
+                if response.status_code == 200:
+                    ready = response.json()
+                    emit(step="4_wait_ready", target=target,
+                         waited_s=round(time.monotonic() - began, 2), ready=ready)
+                    break
+                reason = str(response.json().get("reasons", response.status_code))
+            except (httpx.HTTPError, ValueError) as exc:
+                reason = type(exc).__name__
+            if time.monotonic() >= deadline:
+                emit(step="4_wait_ready", target=target, ok=False, reason=reason,
+                     waited_s=round(time.monotonic() - began, 2))
+                return {"ok": False, "error": f"target not ready: {reason}"}
+            time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+        active.write_text(target)
+        emit(step="5_dns_cutover", target=target, ok=True)
+        return {"ok": True, "target": target, "state": ready,
+                "restore": meta, "rpo": rpo, "cutover": True}
+    except (OSError, httpx.HTTPError, ValueError, SystemExit) as exc:
+        emit(step="abort", target=target, reason=str(exc))
+        return {"ok": False, "error": str(exc)}
 
 
 if __name__ == "__main__":

@@ -1,0 +1,4 @@
+{"ts": 1791615019.160431, "iso": "2026-10-10T06:50:19", "action": "kill", "region": "a", "mode": "netblock", "backend": "bare", "mock": true, "other_region": "b", "other_alive": true, "forced_both": false, "note": "Windows NtSuspendProcess; same process pause as SIGSTOP"}
+{"ts": 1791615052.2675667, "iso": "2026-10-10T06:50:52", "action": "restore", "region": "a", "method": "NtResumeProcess"}
+{"ts": 1791615071.658515, "iso": "2026-10-10T06:51:11", "action": "kill", "region": "a", "mode": "netblock", "backend": "bare", "mock": true, "other_region": "b", "other_alive": true, "forced_both": false, "note": "Windows NtSuspendProcess; same process pause as SIGSTOP"}
+{"ts": 1791615125.0320609, "iso": "2026-10-10T06:52:05", "action": "restore", "region": "a", "method": "NtResumeProcess"}
